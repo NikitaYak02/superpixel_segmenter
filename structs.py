@@ -218,7 +218,6 @@ class SuperPixelAnnotationAlgo:
                 start_label=1
             )
         elif isinstance(superpixel_method, FelzenszwalbSuperpixel):
-
             sp_mask = felzenszwalb(
                 self.image_lab,
                 scale=superpixel_method.scale, 

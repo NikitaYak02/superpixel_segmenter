@@ -112,6 +112,13 @@ class ScribbleApp:
         self.control_frame = tk.Frame(master)
         self.control_frame.pack(side=tk.LEFT, fill=tk.Y)
 
+        # Создание кнопок для добавление суперпиксельного алгоритма и для отмены действия
+        self.add_superpixel_anno_algo_button = tk.Button(self.control_frame, text="Add superpixel anno algo", command=self.add_superpixel_anno_method)
+        self.add_superpixel_anno_algo_button.pack(side=tk.LEFT, pady=30)
+        
+        self.cancel_action_button = tk.Button(self.control_frame, text="Cancel action", command=self.cancel_action)
+        self.cancel_action_button.pack(side=tk.LEFT, pady=30)
+
         # Алгоритмы сегментации
         self.segmentation_algorithms = OrderedDict({
             "SLIC": "slic",
@@ -125,7 +132,7 @@ class ScribbleApp:
         self.color_combobox.bind("<<ComboboxSelected>>", self.marker_changed)
         self.color_combobox.pack(side=tk.LEFT, pady=10)
 
-        self.cur_superpixel_method_combobox = ttk.Combobox(self.control_frame, values=[])
+        self.cur_superpixel_method_combobox = ttk.Combobox(self.control_frame, values=["default"])
         self.cur_superpixel_method_combobox.bind("<<ComboboxSelected>>", self.method_changed)
         self.cur_superpixel_method_combobox.pack(side=tk.LEFT, pady=10)
         
@@ -136,6 +143,7 @@ class ScribbleApp:
         self.zoom_slider.pack(side=tk.LEFT, pady=10)  # Убедитесь, что слайдер добавлен в интерфейс
 
         # Слайдеры для алгоритмов сегментации
+        # Слайдеры для SLIC
         self.slider_n_segments = tk.Scale(self.control_frame, from_=1, to=100, resolution=1, 
                                         orient=tk.HORIZONTAL, label="n_segments (SLIC)")
         self.slider_compactness = tk.Scale(self.control_frame, from_=0.1, to=10, resolution=0.1, 
@@ -143,6 +151,7 @@ class ScribbleApp:
         self.slider_sigma_slic = tk.Scale(self.control_frame, from_=0.1, to=10, resolution=0.1, 
                                         orient=tk.HORIZONTAL, label="sigma (SLIC)")
 
+        # Слайдеры для felzenszwalb
         self.slider_scale = tk.Scale(self.control_frame, from_=1, to=100, resolution=1, 
                                     orient=tk.HORIZONTAL, label="scale (Felzenszwalb)")
         self.slider_sigma_felzenszwalb = tk.Scale(self.control_frame, from_=0.1, to=10, resolution=0.1, 
@@ -177,12 +186,6 @@ class ScribbleApp:
         self.algorithm_combobox.pack(side=tk.LEFT, pady=10)
 
         self.algorithm_changed(None)
-        
-        self.add_superpixel_anno_algo_button = tk.Button(self.control_frame, text="Add superpixel anno algo", command=self.add_superpixel_anno_method)
-        self.add_superpixel_anno_algo_button.pack(side=tk.LEFT, pady=30)
-        
-        self.cancel_action_button = tk.Button(self.control_frame, text="Cancel action", command=self.cancel_action)
-        self.cancel_action_button.pack(side=tk.LEFT, pady=30)
 
         # Bind mouse events
         self.canvas.bind("<B1-Motion>", self.paint)
@@ -206,13 +209,18 @@ class ScribbleApp:
         print("Method combobox changed")
         self.cur_superpixel_method_short_string = event.widget.get()
         print(self.cur_superpixel_method_short_string)
-        img = self.superpixel_anno_algo.image_with_sp_border[self.cur_superpixel_method_short_string]
-        print("Img type:", type(img))
-        self.tk_image = ImageTk.PhotoImage(img)
+        if self.cur_superpixel_method_short_string == "default":
+            self.tk_image = ImageTk.PhotoImage(self.original_image)
+            self.canvas.create_image(0, 0, anchor=tk.NW, image=self.tk_image)
+            self.canvas.config(scrollregion=self.canvas.bbox(tk.ALL))
+        else:
 
-        # Update the canvas image and clear previous drawings
-        self.canvas.create_image(0, 0, anchor=tk.NW, image=self.tk_image)
-        self.canvas.config(scrollregion=self.canvas.bbox(tk.ALL))
+            print("Img type:", type(img))
+            self.tk_image = ImageTk.PhotoImage(img)
+
+            # Update the canvas image and clear previous drawings
+            self.canvas.create_image(0, 0, anchor=tk.NW, image=self.tk_image)
+            self.canvas.config(scrollregion=self.canvas.bbox(tk.ALL))
 
     def draw_borders_button_changed(self):
         if self.image is None:

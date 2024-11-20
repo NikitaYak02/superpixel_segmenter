@@ -25,6 +25,12 @@ def get_key_by_value(ordered_dict, value):
             return key
     return None  # Если значение не найдено
 
+def get_key_by_value_markers(ordered_dict, value):
+    for key, val in ordered_dict.items():
+        if val == value:
+            return key
+    return None  # Если значение не найдено
+
 class ScribbleApp:
     def __init__(self, master, image_path):
         self.master = master
@@ -314,7 +320,12 @@ class ScribbleApp:
                 proc_borders[:, 0] *= tgt_sh[0]
                 proc_borders[:, 1] *= tgt_sh[1]
                 polygon = [(x[0], x[1]) for x in proc_borders]
-                draw.polygon(polygon, fill=(128, 0, 0, 125), outline="yellow")
+                marker_name = get_key_by_value_markers(self.markers_idx, superpixel.code)
+                print(marker_name, self.markers_idx, superpixel.code)
+                color = str(self.markers[marker_name][1])
+                print(color, type(color), marker_name)
+                color = (int(color[1:3], base=16), int(color[3:5], base=16), int(color[5:7], base=16), 125)
+                draw.polygon(polygon, fill=color, outline="yellow")
                 #self.canvas.create_polygon(*(proc_borders.reshape(-1)), fill="#00FF00", alpha=0.5, outline="red", width=2)
             superpixels = self.superpixel_anno_algo.superpixels[sp_method]
             for superpixel in superpixels:
@@ -377,5 +388,5 @@ class ScribbleApp:
         
 if __name__ == "__main__":
     root = tk.Tk()
-    app = ScribbleApp(root, "/home/yalekseevich/dev/term_work_5_year/S1_v1/imgs/train/01.jpg")
+    app = ScribbleApp(root, "/home/nikita/superpixel_segmenter/S1_v1/imgs/test/01.jpg")
     root.mainloop()

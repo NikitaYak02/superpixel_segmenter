@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 import datetime
 from pathlib import Path
-from typing import Optional, Dict, Set
+from typing import Optional, Dict, Set, Tuple
 import numpy as np
 
 from PIL import Image
@@ -20,6 +20,8 @@ from skimage.segmentation import mark_boundaries, find_boundaries
 import skimage
 import matplotlib.pyplot as plt
 from PIL import Image, ImageTk, ImageDraw
+
+
 @dataclass
 class ScribbleParams:
     radius: float
@@ -168,6 +170,14 @@ class FelzenszwalbSuperpixel(SuperPixelMethod):
     def __eq__(self, other):
         return isinstance(other, SuperPixel) and self.short_string() == other.short_string()
 
+
+def bbox_is_intersect(bbox_1: Tuple[int], bbox_2: Tuple[int]) -> bool:
+    """
+    bbox: (x_left, y_top, x_right, y_bottom)
+    """
+    x_intersect: bool = max(bbox_1[0], bbox_2[0]) <= min(bbox_1[2], bbox_2[2])
+    y_intersect: bool = max(bbox_1[1], bbox_2[1]) <= min(bbox_1[3], bbox_2[3])
+    return x_intersect and y_intersect
 
 class SuperPixelAnnotationAlgo:
 
@@ -318,6 +328,11 @@ class SuperPixelAnnotationAlgo:
             annotated_before = False
 
             for cur_superpixel in self.superpixels[superpixel_method]:
+                scrible_bbox = (last_scribble.points[:, 0].min(), last_scribble.points[:, 1].min(), last_scribble.points[:, 0].max(), last_scribble.points[:, 1].max())
+                sp_bbox = (cur_superpixel.border[:, 0].min(), cur_superpixel.border[:, 1].min(), cur_superpixel.border[:, 0].max(), cur_superpixel.border[:, 1].max())
+                can_intersect = bbox_is_intersect(scrible_bbox, sp_bbox)
+                if can_intersect == False:
+                    continue
                 """
                 img = np.array(self.image_with_sp_border[superpixel_method.short_string()])
                 img = Image.fromarray(img)

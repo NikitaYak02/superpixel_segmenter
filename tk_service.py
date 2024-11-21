@@ -3,6 +3,7 @@ from PIL import Image, ImageTk, ImageDraw
 import numpy as np
 from typing import OrderedDict, List
 from tkinter import ttk
+import copy
 import structs
 
 def get_downscaled_image(image: Image, max_size: int):
@@ -27,7 +28,7 @@ def get_key_by_value(ordered_dict, value):
 
 def get_key_by_value_markers(ordered_dict, value):
     for key, val in ordered_dict.items():
-        if val == value:
+        if val[0] == value:
             return key
     return None  # Если значение не найдено
 
@@ -54,6 +55,7 @@ class ScribbleApp:
                 "covelline": "#eaff99",
             }
         )
+        """
         self.markers_idx = OrderedDict(
             {
                 "background": 0,
@@ -71,7 +73,7 @@ class ScribbleApp:
                 "covelline": 12,
             }
         )
-
+        """
         self.curr_marker, self._color = list(self.markers.items())[0]
 
         # dict["marker_name": (marker_idx, marker_hex_color)]
@@ -84,6 +86,7 @@ class ScribbleApp:
         # Load the image
         self.original_image = Image.open(image_path)
         self.image, self.downscale_coeff = get_downscaled_image(self.original_image.copy(), 1500)
+        self.resized_image = copy.deepcopy(self.image)
         self.superpixel_anno_algo = structs.SuperPixelAnnotationAlgo(
             downscale_coeff=1,
             superpixel_methods=[],
@@ -146,7 +149,8 @@ class ScribbleApp:
 
         # Create a zoom slider
         self.zoom_slider = tk.Scale(self.control_frame, from_=0.5, to=5, resolution=0.1, 
-                                    orient=tk.HORIZONTAL, label="Zoom", command=self.update_zoom)
+                                    orient=tk.HORIZONTAL, label="Zoom")
+        self.zoom_slider.bind("<ButtonRelease-1>", self.update_zoom)
         self.zoom_slider.set(1)  # Set initial zoom level
         self.zoom_slider.pack(side=tk.LEFT, pady=10)  # Убедитесь, что слайдер добавлен в интерфейс
 
@@ -253,6 +257,8 @@ class ScribbleApp:
     def reset(self, event):
         self.last_x, self.last_y = None, None
         scribble = np.array(self.prev_line, dtype=np.float32)
+        if len(scribble) < 2:
+            return
         self.lines.append(scribble)
         self.lines_color.append(self._color)
         print("scribble sum:", scribble.sum())
@@ -263,7 +269,7 @@ class ScribbleApp:
                 points=scribble,
                 params=structs.ScribbleParams(
                     radius=1,
-                    code=self.markers_idx[key]
+                    code=self.markers[key][0]
                 )
             )
         )
@@ -299,8 +305,8 @@ class ScribbleApp:
 
 
     def update_zoom(self, value):
-        #self.canvas.delete("all")
-        self.scale = float(value)
+        self.canvas.delete("all")
+        self.scale = float(self.zoom_slider.get())
         # Resize the image based on the current scale
         new_width = int(self.original_image.width  / self.downscale_coeff * self.scale)
         new_height = int(self.original_image.height / self.downscale_coeff * self.scale)
@@ -320,8 +326,8 @@ class ScribbleApp:
                 proc_borders[:, 0] *= tgt_sh[0]
                 proc_borders[:, 1] *= tgt_sh[1]
                 polygon = [(x[0], x[1]) for x in proc_borders]
-                marker_name = get_key_by_value_markers(self.markers_idx, superpixel.code)
-                print(marker_name, self.markers_idx, superpixel.code)
+                marker_name = get_key_by_value_markers(self.markers, superpixel.code)
+                print(marker_name, self.markers, superpixel.code)
                 color = str(self.markers[marker_name][1])
                 print(color, type(color), marker_name)
                 color = (int(color[1:3], base=16), int(color[3:5], base=16), int(color[5:7], base=16), 125)

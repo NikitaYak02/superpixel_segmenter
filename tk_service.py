@@ -1,8 +1,10 @@
 import tkinter as tk
+from tkinter import ttk
+from tkinter import filedialog
+
 from PIL import Image, ImageTk, ImageDraw
 import numpy as np
 from typing import OrderedDict, List
-from tkinter import ttk
 import copy
 import structs
 
@@ -33,7 +35,7 @@ def get_key_by_value_markers(ordered_dict, value):
     return None  # Если значение не найдено
 
 class ScribbleApp:
-    def __init__(self, master, image_path):
+    def __init__(self, master):
         self.master = master
         self.master.title("Scribble on Image")
         self.scrible_counter = 0
@@ -81,56 +83,34 @@ class ScribbleApp:
             item[0]: (i, item[1])
             for i, item in enumerate(self.markers.items(), start=1)
         }
-        
-        # Load the image
-        self.original_image = Image.open(image_path)
-        self.image, self.downscale_coeff = get_downscaled_image(self.original_image.copy(), 1500)
-        self.resized_image = copy.deepcopy(self.image)
-        self.superpixel_anno_algo = structs.SuperPixelAnnotationAlgo(
-            downscale_coeff=1,
-            superpixel_methods=[],
-            image_path="",
-            image=self.image
-        )
 
         # Create a frame for the canvas and scrollbars
-        self.frame = tk.Frame(master)
-        self.frame.pack(fill=tk.BOTH, expand=True)
+        # Create frames
+        self.control_frame = tk.Frame(root)
+        self.control_frame.grid(row=0, column=0, sticky="nsew")
 
-        # Create a canvas
-        self.canvas = tk.Canvas(self.frame, width=self.image.width, height=self.image.height)
-        self.canvas.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
-
-        # Create scrollbars
-        self.v_scrollbar = tk.Scrollbar(self.frame, orient=tk.VERTICAL, command=self.canvas.yview)
-        self.v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.h_scrollbar = tk.Scrollbar(master, orient=tk.HORIZONTAL, command=self.canvas.xview)
-        self.h_scrollbar.pack(fill=tk.X)
-
-        # Configure the canvas to use the scrollbars
-        self.canvas.pack(side="left", fill="both", expand=True)
-        self.canvas.configure(yscrollcommand=self.v_scrollbar.set, xscrollcommand=self.h_scrollbar.set)
+        self.canvas_frame = tk.Frame(root)
+        self.canvas_frame.grid(row=0, column=1, sticky="nsew")
 
         # Convert to PhotoImage for Tkinter
-        self.tk_image = ImageTk.PhotoImage(self.image)
-        self.canvas.create_image(0, 0, anchor=tk.NW, image=self.tk_image)
-        self.lines = []
-        self.prev_line = []
-        self.lines_color = []   
+        # self.tk_image = ImageTk.PhotoImage(self.image)
+        # self.canvas.create_image(0, 0, anchor=tk.NW, image=self.tk_image)
+        # self.lines = []
+        # self.prev_line = []
+        # self.lines_color = []   
 
-        # Create a frame for controls on the left side
-        self.control_frame = tk.Frame(master)
-        self.control_frame.pack(side=tk.LEFT, fill=tk.Y)
-
+        # Button to open image
+        self.open_button = tk.Button(self.control_frame, text="Load image", command=self.open_image)
+        self.open_button.pack(side=tk.TOP)
         # Создание кнопок для добавление суперпиксельного алгоритма и для отмены действия
-        self.add_superpixel_anno_algo_button = tk.Button(self.control_frame, text="Add superpixel anno algo", command=self.add_superpixel_anno_method)
-        self.add_superpixel_anno_algo_button.pack(side=tk.LEFT, pady=30)
+        self.add_superpixel_anno_algo_button = tk.Button(self.control_frame, text="Add new superpixel method", command=self.add_superpixel_anno_method)
+        self.add_superpixel_anno_algo_button.pack(side=tk.TOP, pady=30)
         
         self.cancel_action_button = tk.Button(self.control_frame, text="Save", command=self.save)
-        self.cancel_action_button.pack(side=tk.LEFT, pady=30)
+        self.cancel_action_button.pack(side=tk.TOP, pady=30)
 
         self.cancel_action_button = tk.Button(self.control_frame, text="Load", command=self.load)
-        self.cancel_action_button.pack(side=tk.LEFT, pady=30)
+        self.cancel_action_button.pack(side=tk.TOP, pady=30)
 
         # Алгоритмы сегментации
         self.segmentation_algorithms = OrderedDict({
@@ -142,11 +122,11 @@ class ScribbleApp:
         self.color_combobox = ttk.Combobox(self.control_frame, values=list(self.markers.keys()))
         self.color_combobox.current(0)  # Устанавливаем начальное значение
         self.color_combobox.bind("<<ComboboxSelected>>", self.marker_changed)
-        self.color_combobox.pack(side=tk.LEFT, pady=10)
+        self.color_combobox.pack(side=tk.TOP, pady=10)
 
         self.cur_superpixel_method_combobox = ttk.Combobox(self.control_frame, values=["default"])
         self.cur_superpixel_method_combobox.bind("<<ComboboxSelected>>", self.method_changed)
-        self.cur_superpixel_method_combobox.pack(side=tk.LEFT, pady=10)
+        self.cur_superpixel_method_combobox.pack(side=tk.TOP, pady=10)
         self.added_superpixels_method: List[structs.SuperPixelMethod] = []
 
         # Create a zoom slider
@@ -154,7 +134,7 @@ class ScribbleApp:
                                     orient=tk.HORIZONTAL, label="Zoom")
         self.zoom_slider.bind("<ButtonRelease-1>", self.update_zoom)
         self.zoom_slider.set(1)  # Set initial zoom level
-        self.zoom_slider.pack(side=tk.LEFT, pady=10)  # Убедитесь, что слайдер добавлен в интерфейс
+        self.zoom_slider.pack(side=tk.TOP, pady=10)  # Убедитесь, что слайдер добавлен в интерфейс
 
         # Слайдеры для алгоритмов сегментации
         # Слайдеры для SLIC
@@ -182,13 +162,13 @@ class ScribbleApp:
         self.slider_min_size.set(10)
 
         # Добавляем слайдеры в интерфейс
-        self.slider_n_segments.pack(side=tk.LEFT, pady=10)
-        self.slider_compactness.pack(side=tk.LEFT, pady=10)
-        self.slider_sigma_slic.pack(side=tk.LEFT, pady=10)
+        self.slider_n_segments.pack(side=tk.TOP, pady=10)
+        self.slider_compactness.pack(side=tk.TOP, pady=10)
+        self.slider_sigma_slic.pack(side=tk.TOP, pady=10)
 
-        self.slider_scale_felzenszwalb.pack(side=tk.LEFT, pady=10)
-        self.slider_sigma_felzenszwalb.pack(side=tk.LEFT, pady=10)
-        self.slider_min_size.pack(side=tk.LEFT, pady=10)
+        self.slider_scale_felzenszwalb.pack(side=tk.TOP, pady=10)
+        self.slider_sigma_felzenszwalb.pack(side=tk.TOP, pady=10)
+        self.slider_min_size.pack(side=tk.TOP, pady=10)
 
         # Скрываем слайдеры по умолчанию
         self.hide_all_sliders()
@@ -197,16 +177,65 @@ class ScribbleApp:
         self.algorithm_combobox = ttk.Combobox(self.control_frame, values=list(self.segmentation_algorithms.keys()))
         self.algorithm_combobox.current(0)  # Устанавливаем начальное значение
         self.algorithm_combobox.bind("<<ComboboxSelected>>", self.algorithm_changed)
-        self.algorithm_combobox.pack(side=tk.LEFT, pady=10)
+        self.algorithm_combobox.pack(side=tk.TOP, pady=10)
 
         self.algorithm_changed(None)
 
+
+        self.last_x, self.last_y = None, None
+        self.scale = 1.0  # Zoom level
+
+    def create_canvas(self):
+        # Create a canvas
+        self.canvas = tk.Canvas(
+            self.canvas_frame, 
+            width=min(self.image.width, 1200), 
+            height=min(self.image.height, 800), 
+            bg='white'
+        )
+
+        # Create scrollbars
+        self.h_scrollbar = tk.Scrollbar(self.canvas_frame, orient=tk.HORIZONTAL, command=self.canvas.xview)
+        self.h_scrollbar.pack(side=tk.TOP, fill=tk.X)
+
+        self.canvas.pack(side=tk.TOP, expand=True)
+
+        self.v_scrollbar = tk.Scrollbar(self.canvas_frame, orient=tk.VERTICAL, command=self.canvas.yview)
+        self.v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Configure the canvas to use the scrollbars
+        self.canvas.pack(side="left", fill="both", expand=True)
+        self.canvas.configure(yscrollcommand=self.v_scrollbar.set, xscrollcommand=self.h_scrollbar.set)
+        
         # Bind mouse events
         self.canvas.bind("<B1-Motion>", self.paint)
         self.canvas.bind("<ButtonRelease-1>", self.reset)
 
-        self.last_x, self.last_y = None, None
-        self.scale = 1.0  # Zoom level
+    def open_image(self):
+        file_path = filedialog.askopenfilename()
+        if file_path:
+            self.original_image = Image.open(file_path)
+            self.image, self.downscale_coeff = get_downscaled_image(self.original_image.copy(), 1500)
+            self.create_canvas()
+            self.superpixel_anno_algo = structs.SuperPixelAnnotationAlgo(
+                downscale_coeff=1,
+                superpixel_methods=[],
+                image_path="",
+                image=self.image
+            )
+            self.lines = []
+            self.prev_line = []
+            self.lines_color = []   
+            self.display_image()
+
+    def display_image(self):
+        img_resized = self.image.resize((int(self.image.width * self.scale), int(self.image.height * self.scale)))
+        self.tk_image = ImageTk.PhotoImage(img_resized)
+
+        self.canvas.delete("all")
+        self.image_on_canvas = self.canvas.create_image(0, 0, anchor=tk.NW, image=self.tk_image)
+        self.canvas.config(scrollregion=self.canvas.bbox(tk.ALL))
+
 
     def save(self):
         self.superpixel_anno_algo.serialize()
@@ -236,11 +265,11 @@ class ScribbleApp:
 
     def paint(self, event):
         # Get current scroll position
-        x_scroll = self.canvas.xview()[0] * self.resized_image.width #* float(self.zoom_slider.get())
-        y_scroll = self.canvas.yview()[0] * self.resized_image.height
+        x_scroll = self.canvas.xview()[0] * self.image.width #* float(self.zoom_slider.get())
+        y_scroll = self.canvas.yview()[0] * self.image.height
 
         # Adjust coordinates based on current scale and scroll position
-        # print(event.x, x_scroll, event.y, y_scroll, self.resized_image.size)
+        # print(event.x, x_scroll, event.y, y_scroll, self.image.size)
         x = (max(event.x, 1) + x_scroll) 
         y = (max(event.y, 1) + y_scroll) 
         if self.last_x is not None and self.last_y is not None:
@@ -248,8 +277,8 @@ class ScribbleApp:
             self.canvas.create_line((self.last_x, self.last_y,
                                      x , y), fill=self._color, width=2)
         self.prev_line.append((
-            x / self.resized_image.width,
-            y / self.resized_image.height
+            x / self.image.width,
+            y / self.image.height
         ))
         self.last_x, self.last_y = x, y
 
@@ -293,29 +322,30 @@ class ScribbleApp:
         self.hide_all_sliders()
 
         if self.selected_algorithm == "SLIC":
-            self.slider_n_segments.pack(side=tk.LEFT, pady=20)
-            self.slider_compactness.pack(side=tk.LEFT, pady=20)
-            self.slider_sigma_slic.pack(side=tk.LEFT, pady=20)
+            self.slider_n_segments.pack(side=tk.TOP, pady=20)
+            self.slider_compactness.pack(side=tk.TOP, pady=20)
+            self.slider_sigma_slic.pack(side=tk.TOP, pady=20)
         elif self.selected_algorithm == "Felzenszwalb":
-            self.slider_scale_felzenszwalb.pack(side=tk.LEFT, pady=20)
-            self.slider_sigma_felzenszwalb.pack(side=tk.LEFT, pady=20)
-            self.slider_min_size.pack(side=tk.LEFT, pady=20)
+            self.slider_scale_felzenszwalb.pack(side=tk.TOP, pady=20)
+            self.slider_sigma_felzenszwalb.pack(side=tk.TOP, pady=20)
+            self.slider_min_size.pack(side=tk.TOP, pady=20)
 
 
 
-    def update_zoom(self, value):
-        self.canvas.delete("all")
-        self.scale = float(self.zoom_slider.get())
-        # Resize the image based on the current scale
-        new_width = int(self.original_image.width  / self.downscale_coeff * self.scale)
-        new_height = int(self.original_image.height / self.downscale_coeff * self.scale)
-        self.resized_image = self.original_image.resize((new_width, new_height), Image.LANCZOS)
-        self.cur_superpixel_method_short_string = self.cur_superpixel_method_combobox.get()
-        print(self.cur_superpixel_method_short_string)
-        overlay = Image.new("RGBA", self.resized_image.size, (255, 255, 255, 0))
-        draw = ImageDraw.Draw(overlay)
+    def update_zoom(self, value, signal_from_paint=False):
+        if not signal_from_paint:
+            self.canvas.delete("all")
+            self.scale = float(self.zoom_slider.get())
+            # Resize the image based on the current scale
+            new_width = int(self.original_image.width  / self.downscale_coeff * self.scale)
+            new_height = int(self.original_image.height / self.downscale_coeff * self.scale)
+            self.image = self.original_image.resize((new_width, new_height), Image.LANCZOS)
+            self.cur_superpixel_method_short_string = self.cur_superpixel_method_combobox.get()
+            print(self.cur_superpixel_method_short_string)
+            self.overlay = Image.new("RGBA", self.image.size, (255, 255, 255, 0))
+        draw = ImageDraw.Draw(self.overlay)
         if not (self.cur_superpixel_method_short_string in ["default", ""]):
-            tgt_sh = self.resized_image.size
+            tgt_sh = self.image.size
             for sp_method in self.added_superpixels_method:
                 if sp_method.short_string() == self.cur_superpixel_method_short_string:
                     break
@@ -332,16 +362,17 @@ class ScribbleApp:
                 draw.polygon(polygon, fill=color, outline="yellow")
                 #self.canvas.create_polygon(*(proc_borders.reshape(-1)), fill="#00FF00", alpha=0.5, outline="red", width=2)
             #print(self.superpixel_anno_algo.superpixels)
-            superpixels = self.superpixel_anno_algo.superpixels[sp_method]
-            for superpixel in superpixels:
-                proc_borders = copy.deepcopy(superpixel.border)
-                proc_borders[:, 0] *= tgt_sh[0]
-                proc_borders[:, 1] *= tgt_sh[1]
-                polygon = [(x[0], x[1]) for x in proc_borders]
-                draw.polygon(polygon, outline="yellow")
-        overlay_rgb = overlay.convert("RGB")
-        overlay_alpha = overlay.split()[-1]  # Alpha channel
-        image = self.resized_image.copy()
+            if not signal_from_paint:
+                superpixels = self.superpixel_anno_algo.superpixels[sp_method]
+                for superpixel in superpixels:
+                    proc_borders = copy.deepcopy(superpixel.border)
+                    proc_borders[:, 0] *= tgt_sh[0]
+                    proc_borders[:, 1] *= tgt_sh[1]
+                    polygon = [(x[0], x[1]) for x in proc_borders]
+                    draw.polygon(polygon, outline="yellow")
+        overlay_rgb = self.overlay.convert("RGB")
+        overlay_alpha = self.overlay.split()[-1]  # Alpha channel
+        image = self.image.copy()
         image.paste(overlay_rgb, (0, 0), mask=overlay_alpha)
 
         self.tk_image = ImageTk.PhotoImage(image)
@@ -355,6 +386,7 @@ class ScribbleApp:
             for (idx, color_in_markers) in self.markers.values():
                 if scribble.params.code == idx:
                     color = color_in_markers
+                    break
             for i in range(len(line) - 1):
                 self.canvas.create_line((new_width * line[i][0], new_height * line[i][1],
                                 new_width * line[i+1][0], new_height * line[i+1][1]), fill=color, width=2)
@@ -363,8 +395,8 @@ class ScribbleApp:
         #        self.canvas.create_line((new_width * line[i][0], new_height * line[i][1],
         #                        new_width * line[i+1][0], new_height * line[i+1][1]), fill=color, width=2)
 
-        # Update scroll region
-        self.canvas.config(scrollregion=self.canvas.bbox(tk.ALL))
+        # # Update scroll region
+        # self.canvas.config(scrollregion=self.canvas.bbox(tk.ALL))
     
     def add_superpixel_anno_method(self):
         # Get the current scrollbar positions
@@ -402,5 +434,5 @@ class ScribbleApp:
         
 if __name__ == "__main__":
     root = tk.Tk()
-    app = ScribbleApp(root, "/home/nikita/superpixel_segmenter/S1_v1/imgs/test/01.jpg")
+    app = ScribbleApp(root)
     root.mainloop()

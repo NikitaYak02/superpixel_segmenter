@@ -464,156 +464,156 @@ class SuperPixelAnnotationAlgo:
         self.prev_ind_scribble = self.ind_scrible
         scribble_line = shapely.LineString(last_scribble.points)
 
-        for superpixel_method in self.superpixel_methods:
-            superpixel_ind_to_del = []
-            superpixel_to_append = []
-            scribbles_to_check = []
-            annotations_to_del = []
-            for cur_superpixel_ind, cur_superpixel in enumerate(self.superpixels[superpixel_method]):
-                scrible_bbox = (last_scribble.points[:, 0].min(), last_scribble.points[:, 1].min(), last_scribble.points[:, 0].max(), last_scribble.points[:, 1].max())
-                sp_bbox = (cur_superpixel.border[:, 0].min(), cur_superpixel.border[:, 1].min(), cur_superpixel.border[:, 0].max(), cur_superpixel.border[:, 1].max())
-                can_intersect = bbox_is_intersect(scrible_bbox, sp_bbox)
-                if can_intersect == False:
-                    continue
-                # Проверка пересечения с суперпикселем
-                superpixel_polygon = Polygon(cur_superpixel.border)
-                if len(last_scribble.points) > 1 and superpixel_polygon.intersects(scribble_line):
-                    annotated_before = False
-                    print(f"Checking scribble with superpixel ID: {cur_superpixel.id}")
-                    # Проверка, аннотирован ли суперпиксель
-                    for anno_ind, anno in enumerate(self._annotations[superpixel_method].annotations):
-                        if anno.parent_superpixel == cur_superpixel.id:
-                            annotated_before = True
-                            anno_created_scribble = None
-                            for scribble in self._scribbles:
-                                if anno.parent_scribble[0] == scribble.id:
-                                    anno_created_scribble = scribble
-                                    break
-                            if anno_created_scribble.params.code != last_scribble.params.code:
-                                print(f"Checking scribble with superpixel ID: {cur_superpixel.id}")
-                                annotations_to_del.append(anno_ind)
-                                scribbles_to_check.extend(anno.parent_scribble)
-                                superpixel_ind_to_del.append(cur_superpixel_ind)
-                                region = copy.deepcopy(cur_superpixel.border)
-                                region[:, 0] *= self.image.size[0]
-                                region[:, 1] *= self.image.size[1]
-                                polygon = [(x[0], x[1]) for x in region]
-                                overlay = Image.new("RGB", self.image.size, (0, 0, 0))
-                                draw = ImageDraw.Draw(overlay)
-                                draw.polygon(polygon, fill="white", outline="white")
-                                overlay_rgb = overlay.convert("RGB").convert("L")
-                                overlay_rgb = np.array(overlay_rgb)
-                                print("conv started")
-                                overlay_rgb = convolve2d(overlay_rgb, np.ones((3,3), dtype=np.int32), "same")
-                                print("conv finished")
-                                sp_mask = slic(
-                                    self.image_lab,
-                                    n_segments=10,
-                                    compactness=superpixel_method.compactness,
-                                    sigma=superpixel_method.sigma,
-                                    start_label=1,
-                                    mask=overlay_rgb
-                                )
-                                print("sp finished")
-                                segments = np.zeros((sp_mask.shape[0]+2, sp_mask.shape[1]+2), dtype=np.int32)
-                                segments -= 1
-                                segments[1:-1, 1:-1] = sp_mask
-                                unique_segments = np.unique(sp_mask)[1:]
-                                for segment in unique_segments:
-                                    print("process segment in supepixel divide", segment)
-                                    # Create a mask for the current segment
-                                    binary_mask = (sp_mask == segment).astype(np.uint8)
-                                    contours = skimage.measure.find_contours(binary_mask)
-                                    external_contour = contours[0][:, ::-1]
-                                    # Преобразуйте контур в список координат
-                                    polygon = external_contour.astype(np.float32)
-                                    #image_to_vis = self.image.copy()
-                                    #draw = ImageDraw.Draw(image_to_vis)
-                                    #draw.polygon(polygon, outline="red")
-                                    #draw.polygon(region, outline="yellow")
-                                    #image_to_vis.show()
-                                    #plt.imshow(image_to_vis)
-                                    #plt.show()
-                                    polygon[:, 0] /= overlay_rgb.shape[1]
-                                    polygon[:, 1] /= overlay_rgb.shape[0]
-                                    polygon1 = shapely.Polygon(polygon).intersection(shapely.Polygon(cur_superpixel.border))
-                                    if isinstance(polygon1, shapely.GeometryCollection):
-                                        polygon1 = polygon1.geoms[0]
-                                    elif isinstance(polygon1, shapely.MultiPolygon):
-                                        polygon1 = polygon1.geoms[0]
-                                    polygon = np.array(polygon1.boundary.coords)
-                                    
+        superpixel_method = self.superpixel_methods[0]
+        superpixel_ind_to_del = []
+        superpixel_to_append = []
+        scribbles_to_check = []
+        annotations_to_del = []
+        for cur_superpixel_ind, cur_superpixel in enumerate(self.superpixels[superpixel_method]):
+            scrible_bbox = (last_scribble.points[:, 0].min(), last_scribble.points[:, 1].min(), last_scribble.points[:, 0].max(), last_scribble.points[:, 1].max())
+            sp_bbox = (cur_superpixel.border[:, 0].min(), cur_superpixel.border[:, 1].min(), cur_superpixel.border[:, 0].max(), cur_superpixel.border[:, 1].max())
+            can_intersect = bbox_is_intersect(scrible_bbox, sp_bbox)
+            if can_intersect == False:
+                continue
+            # Проверка пересечения с суперпикселем
+            superpixel_polygon = Polygon(cur_superpixel.border)
+            if len(last_scribble.points) > 1 and superpixel_polygon.intersects(scribble_line):
+                annotated_before = False
+                print(f"Checking scribble with superpixel ID: {cur_superpixel.id}")
+                # Проверка, аннотирован ли суперпиксель
+                for anno_ind, anno in enumerate(self._annotations[superpixel_method].annotations):
+                    if anno.parent_superpixel == cur_superpixel.id:
+                        annotated_before = True
+                        anno_created_scribble = None
+                        for scribble in self._scribbles:
+                            if anno.parent_scribble[0] == scribble.id:
+                                anno_created_scribble = scribble
+                                break
+                        if anno_created_scribble.params.code != last_scribble.params.code:
+                            print(f"Checking scribble with superpixel ID: {cur_superpixel.id}")
+                            annotations_to_del.append(anno_ind)
+                            scribbles_to_check.extend(anno.parent_scribble)
+                            superpixel_ind_to_del.append(cur_superpixel_ind)
+                            region = copy.deepcopy(cur_superpixel.border)
+                            region[:, 0] *= self.image.size[0]
+                            region[:, 1] *= self.image.size[1]
+                            polygon = [(x[0], x[1]) for x in region]
+                            overlay = Image.new("RGB", self.image.size, (0, 0, 0))
+                            draw = ImageDraw.Draw(overlay)
+                            draw.polygon(polygon, fill="white", outline="white")
+                            overlay_rgb = overlay.convert("RGB").convert("L")
+                            overlay_rgb = np.array(overlay_rgb)
+                            print("conv started")
+                            overlay_rgb = convolve2d(overlay_rgb, np.ones((3,3), dtype=np.int32), "same")
+                            print("conv finished")
+                            sp_mask = slic(
+                                self.image_lab,
+                                n_segments=10,
+                                compactness=superpixel_method.compactness,
+                                sigma=superpixel_method.sigma,
+                                start_label=1,
+                                mask=overlay_rgb
+                            )
+                            print("sp finished")
+                            segments = np.zeros((sp_mask.shape[0]+2, sp_mask.shape[1]+2), dtype=np.int32)
+                            segments -= 1
+                            segments[1:-1, 1:-1] = sp_mask
+                            unique_segments = np.unique(sp_mask)[1:]
+                            for segment in unique_segments:
+                                print("process segment in supepixel divide", segment)
+                                # Create a mask for the current segment
+                                binary_mask = (sp_mask == segment).astype(np.uint8)
+                                contours = skimage.measure.find_contours(binary_mask)
+                                external_contour = contours[0][:, ::-1]
+                                # Преобразуйте контур в список координат
+                                polygon = external_contour.astype(np.float32)
+                                #image_to_vis = self.image.copy()
+                                #draw = ImageDraw.Draw(image_to_vis)
+                                #draw.polygon(polygon, outline="red")
+                                #draw.polygon(region, outline="yellow")
+                                #image_to_vis.show()
+                                #plt.imshow(image_to_vis)
+                                #plt.show()
+                                polygon[:, 0] /= overlay_rgb.shape[1]
+                                polygon[:, 1] /= overlay_rgb.shape[0]
+                                polygon1 = shapely.Polygon(polygon).intersection(shapely.Polygon(cur_superpixel.border))
+                                if isinstance(polygon1, shapely.GeometryCollection):
+                                    polygon1 = polygon1.geoms[0]
+                                elif isinstance(polygon1, shapely.MultiPolygon):
+                                    polygon1 = polygon1.geoms[0]
+                                polygon = np.array(polygon1.boundary.coords)
+                                
 
-                                    superpixel_to_append.append(
-                                        SuperPixel(
-                                            id=self._superpixel_ind[superpixel_method],
-                                            method=superpixel_method.short_string(), 
-                                            border=np.around(polygon[::], decimals=7), #len(polygon) // 20 if len(polygon) > 20 else 1
-                                            parents=cur_superpixel.id
-                                        )
+                                superpixel_to_append.append(
+                                    SuperPixel(
+                                        id=self._superpixel_ind[superpixel_method],
+                                        method=superpixel_method.short_string(), 
+                                        border=np.around(polygon[::], decimals=7), #len(polygon) // 20 if len(polygon) > 20 else 1
+                                        parents=cur_superpixel.id
                                     )
-                                    self._superpixel_ind[superpixel_method] += 1
-                            else:
-                                anno.parent_scribble.append(last_scribble.id)
+                                )
+                                self._superpixel_ind[superpixel_method] += 1
+                        else:
+                            anno.parent_scribble.append(last_scribble.id)
 
 
-                            print(f"Superpixel {cur_superpixel.id} is already annotated")
-                    if annotated_before:
-                        continue
-                    self._annotations[superpixel_method].annotations.append(
-                        AnnotationInstance(
-                            id=self._annotation_ind[superpixel_method],
-                            code=last_scribble.params.code,
-                            border=cur_superpixel.border.astype(np.float32),
-                            parent_superpixel=cur_superpixel.id,
-                            parent_scribble=[last_scribble.id]
-                        )
+                        print(f"Superpixel {cur_superpixel.id} is already annotated")
+                if annotated_before:
+                    continue
+                self._annotations[superpixel_method].annotations.append(
+                    AnnotationInstance(
+                        id=self._annotation_ind[superpixel_method],
+                        code=last_scribble.params.code,
+                        border=cur_superpixel.border.astype(np.float32),
+                        parent_superpixel=cur_superpixel.id,
+                        parent_scribble=[last_scribble.id]
                     )
-                    self._annotation_ind[superpixel_method] += 1
-            for sp_to_del in superpixel_ind_to_del[::-1]:
-                self.superpixels[superpixel_method].pop(sp_to_del)
-            for superpixel in superpixel_to_append:
-                self.superpixels[superpixel_method].append(superpixel)
-            annotations_to_del = sorted(list(set(annotations_to_del)))
-            for anno_to_del in annotations_to_del[::-1]:
-                self._annotations[superpixel_method].annotations.pop(anno_to_del)
-            for superpixel in superpixel_to_append:
-                superpixel_polygon = Polygon(superpixel.border)
-                # check with last scribble
-                if len(last_scribble.points) > 1 and superpixel_polygon.intersects(scribble_line):
+                )
+                self._annotation_ind[superpixel_method] += 1
+        for sp_to_del in superpixel_ind_to_del[::-1]:
+            self.superpixels[superpixel_method].pop(sp_to_del)
+        for superpixel in superpixel_to_append:
+            self.superpixels[superpixel_method].append(superpixel)
+        annotations_to_del = sorted(list(set(annotations_to_del)))
+        for anno_to_del in annotations_to_del[::-1]:
+            self._annotations[superpixel_method].annotations.pop(anno_to_del)
+        for superpixel in superpixel_to_append:
+            superpixel_polygon = Polygon(superpixel.border)
+            # check with last scribble
+            if len(last_scribble.points) > 1 and superpixel_polygon.intersects(scribble_line):
+                self._annotations[superpixel_method].annotations.append(
+                    AnnotationInstance(
+                        id=self._annotation_ind[superpixel_method],
+                        code=last_scribble.params.code,
+                        border=superpixel.border.astype(np.float32),
+                        parent_superpixel=superpixel.id,
+                        parent_scribble=[last_scribble.id]
+                    )
+                )
+                self._annotation_ind[superpixel_method] += 1
+            for scribble_id in scribbles_to_check:
+                scribble = None
+                # find scribble with needed id
+                for scr in self._scribbles:
+                    if scr.id == scribble_id:
+                        scribble = scr
+                        break
+                scribble_line_temp = shapely.LineString(scribble.points)
+                if len(scribble.points) > 1 and superpixel_polygon.intersects(scribble_line_temp):
                     self._annotations[superpixel_method].annotations.append(
                         AnnotationInstance(
                             id=self._annotation_ind[superpixel_method],
-                            code=last_scribble.params.code,
+                            code=scribble.params.code,
                             border=superpixel.border.astype(np.float32),
                             parent_superpixel=superpixel.id,
-                            parent_scribble=[last_scribble.id]
+                            parent_scribble=[scribble.id]
                         )
                     )
                     self._annotation_ind[superpixel_method] += 1
-                for scribble_id in scribbles_to_check:
-                    scribble = None
-                    # find scribble with needed id
-                    for scr in self._scribbles:
-                        if scr.id == scribble_id:
-                            scribble = scr
-                            break
-                    scribble_line_temp = shapely.LineString(scribble.points)
-                    if len(scribble.points) > 1 and superpixel_polygon.intersects(scribble_line_temp):
-                        self._annotations[superpixel_method].annotations.append(
-                            AnnotationInstance(
-                                id=self._annotation_ind[superpixel_method],
-                                code=scribble.params.code,
-                                border=superpixel.border.astype(np.float32),
-                                parent_superpixel=superpixel.id,
-                                parent_scribble=[scribble.id]
-                            )
-                        )
-                        self._annotation_ind[superpixel_method] += 1
-                    
-            
-            print(f"Number of annotations after update: {len(self._annotations[superpixel_method].annotations)}")
-            print(f"Total number of superpixels: {len(self.superpixels[superpixel_method])}")
+                
+        
+        print(f"Number of annotations after update: {len(self._annotations[superpixel_method].annotations)}")
+        print(f"Total number of superpixels: {len(self.superpixels[superpixel_method])}")
 
 
     def get_annotation(self, method: SuperPixelMethod) -> ImageAnnotation:
@@ -621,23 +621,3 @@ class SuperPixelAnnotationAlgo:
         # postprocessing
         annos2 = annos
         return ImageAnnotation(annos2)
-
-
-if __name__ == "__main__":
-    scr1 = Scribble(
-        id=0,
-        points=np.asarray([[0.05, 0.07], [0.12, 0.1], [0.4, 0.2]]),
-        params=ScribbleParams(radius=5, code=0),
-    )
-    print(scr1)
-    print(scr1.bbox)
-
-    algo = SuperPixelAnnotationAlgo(
-        image_path=Path("/home/yalekseevich/dev/term_work_5_year/data/image1.jpeg"),
-        downscale_coeff=1,
-        superpixel_methods=[
-            SLICSuperpixel(n_clusters=10, compactness=0.5)
-        ],
-    )
-
-    algo.add_scribble(scr1)

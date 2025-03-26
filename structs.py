@@ -23,6 +23,7 @@ from PIL import Image, ImageTk, ImageDraw
 import json
 import copy
 from scipy.signal import convolve2d
+from pathlib import Path
 
 
 @dataclass
@@ -362,93 +363,149 @@ class SuperPixelAnnotationAlgo:
             print(len(self._annotations[superpixel_method]))
             self._annotations[superpixel_method] = set(i for i in self._annotations[superpixel_method] if i.id < self.prev_ind_scrible)
             print(len(self._annotations[superpixel_method]))
-
-    def serialize_scribble(self) -> List:
-        res = []
-        for scribble in self._scribbles:
-            res.append(scribble.dict_to_save())
-        return res
     
-    def serialize_superpixels(self) -> Dict:
-        res = dict()
-        for sp_method in self.superpixel_methods:
-            subres = []
-            for superpixel in self.superpixels[sp_method]:
-                subres.append(superpixel.dict_to_save())
-            res[sp_method.short_string()] = subres
-        return res
-    
-    def serialize_annotations(self) -> Dict:
-        res = dict()
-        for sp_method in self.superpixel_methods:
-            subres = []
-            for superpixel in self._annotations[sp_method].annotations:
-                subres.append(superpixel.dict_to_save())
-            res[sp_method.short_string()] = subres
-        return res
+    def serialize(self, path: str) -> None:
+        """Сериализация данных с автоматическим созданием файла"""
+        try:
+            # Создаем структуру данных для сохранения
+            data = {
+                "scribbles": self._serialize_scribbles(),
+                "superpixels": self._serialize_superpixels(),
+                "annotations": self._serialize_annotations()
+            }
+            
+            # Записываем в файл с созданием директорий
+            with open(path, 'w') as f:
+                json.dump(data, f, indent=2)
+                
+        except PermissionError:
+            raise Exception("Permission denied to write file")
+        except IsADirectoryError:
+            raise Exception("Specified path is a directory")
+        except Exception as e:
+            raise Exception(f"Serialization error: {str(e)}")
 
-    def serialize(self, path="/home/nikita/superpixel_segmenter/output/dump.json"):
-        scribbles_list = self.serialize_scribble()
-        superpixels_dict = self.serialize_superpixels()
-        annotations_dict = self.serialize_annotations()
-        res = {
-            "scribbles": scribbles_list,
-            "superpixels": superpixels_dict,
-            "annotations": annotations_dict
+    def _serialize_scribbles(self) -> list:
+        return [s.dict_to_save() for s in self._scribbles]
+
+    def _serialize_superpixels(self) -> dict:
+        return {
+            method.short_string(): [sp.dict_to_save() for sp in sp_list]
+            for method, sp_list in self.superpixels.items()
         }
-        with open(path, "w") as f:
-            print(json.dumps(res), file=f)
-        #np.save(path + ".npy", res)
+
+    def _serialize_annotations(self) -> dict:
+        return {
+            method.short_string(): [anno.dict_to_save() for anno in anno_list.annotations]
+            for method, anno_list in self._annotations.items()
+        }
     
-    def deserialize(self, path="/home/nikita/superpixel_segmenter/output/dump.json"):
-        with open(path, "r") as f:
-            loaded_dict = json.load(f)
-        #data2=np.load(path + ".npy", allow_pickle=True)
-        #loaded_dict = data2[()]
-        self._scribbles.clear()
-        
+    
+    def deserialize(self, path: str) -> None:
+        """Десериализация данных с валидацией"""
+        try:
+            with open(path, "r") as f:
+                loaded_dict = json.load(f)
+
+            self._clear_existing_data()
+            self._load_superpixels(loaded_dict)
+            self._load_annotations(loaded_dict)
+            self._load_scribbles(loaded_dict)
+
+        except FileNotFoundError:
+            raise Exception("File not found")
+        except json.JSONDecodeError:
+            raise Exception("Invalid JSON format")
+        except KeyError as e:
+            raise Exception(f"Missing required field: {str(e)}")
+        except Exception as e:
+            raise Exception(f"Loading error: {str(e)}")
+
+    def _clear_existing_data(self):
+        """Очистка текущих данных"""
         self.superpixel_methods.clear()
-        for sp_method in list(loaded_dict["superpixels"].keys()):
-            parts = sp_method.split("_")
-            sp_method_class = None
-            if parts[0] == "SLIC":
-                self.superpixel_methods.append(
-                    SLICSuperpixel(
-                        n_clusters=int(parts[1]),
-                        compactness=float(parts[2]),
-                        sigma=float(parts[3])
-                    )
+        self.superpixels.clear()
+        self._annotations.clear()
+        self._scribbles.clear()
+
+    def _load_superpixels(self, data: dict):
+        """Загрузка данных о суперпикселях"""
+        for method_str, sp_list in data["superpixels"].items():
+            method = self._parse_method_from_string(method_str)
+            self.superpixel_methods.append(method)
+            self.superpixels[method] = [
+                SuperPixel(
+                    id=sp["id"],
+                    method=sp["method"],
+                    border=np.array(sp["border"], dtype=np.float32),
+                    parents=sp["parents"]
+                ) for sp in sp_list
+            ]
+
+    def _load_annotations(self, data: dict):
+        """Загрузка аннотаций"""
+        for method_str, anno_list in data["annotations"].items():
+            method = next(m for m in self.superpixel_methods if m.short_string() == method_str)
+            self._annotations[method] = ImageAnnotation(
+                annotations=[
+                    AnnotationInstance(
+                        id=anno["id"],
+                        code=anno["code"],
+                        border=np.array(anno["border"], dtype=np.float32),
+                        parent_superpixel=anno["parent_superpixel"]
+                    ) for anno in anno_list
+                ]
+            )
+
+    def _load_scribbles(self, data: dict):
+        """Загрузка скрайблов"""
+        self._scribbles = [
+            Scribble(
+                id=scribble["id"],
+                points=np.array(scribble["points"], dtype=np.float32),
+                params=ScribbleParams(
+                    radius=scribble["params"]["radius"],
+                    code=scribble["params"]["code"]
                 )
-            elif parts[1] == "Felzenszwalb":
-                self.superpixel_methods.append(
-                    FelzenszwalbSuperpixel(
-                        n_clusters=int(parts[1]),
-                        compactness=float(parts[2]),
-                        scale=float(parts[3])
-                    )
-                )
-            sp_method_class = self.superpixel_methods[-1]
-            self._superpixel_ind[sp_method_class] = 0
-            superpixels = []
-            for superpixel in loaded_dict["superpixels"][sp_method]:
-                sp = SuperPixel(superpixel["id"], superpixel["method"], np.array(superpixel["border"], dtype=np.float32), superpixel["parents"])
-                self._superpixel_ind[sp_method_class] = max(self._superpixel_ind[sp_method_class], int(superpixel["id"]) + 1)
-                superpixels.append(sp)
-            self.superpixels[sp_method_class] = superpixels
-        for sp_method_class in self.superpixel_methods:
-            self._annotation_ind[sp_method_class] = 0
-            annos = []
-            for anno in loaded_dict["annotations"][sp_method_class.short_string()]:
-                sp = AnnotationInstance(int(anno["id"]), int(anno["code"]), np.array(anno["border"], dtype=np.float32), int(anno["parent_superpixel"]))
-                annos.append(sp)
-                self._annotation_ind[sp_method_class] = max(self._annotation_ind[sp_method_class], int(anno["id"]) + 1)
-            self._annotations[sp_method_class] = ImageAnnotation(annotations=annos)
-        for scribble_dict in loaded_dict["scribbles"]:
-            scribble_to_init = Scribble(0, 0, 0)
-            scribble_to_init.set_from_dict(scribble_dict)
-            self._scribbles.append(scribble_to_init)
+            ) for scribble in data["scribbles"]
+        ]
+    
+    @staticmethod
+    def _parse_method_from_string(method_str: str) -> SuperPixelMethod:
+        """Статический метод для преобразования строки в объект SuperPixelMethod"""
+        parts = method_str.split('_')
         
-        print("Loaded finished")
+        try:
+            method_type = parts[0]
+            
+            if method_type == "SLIC":
+                if len(parts) != 4:
+                    raise ValueError(f"Invalid SLIC format: {method_str}")
+                return SLICSuperpixel(
+                    n_clusters=int(parts[1]),
+                    compactness=float(parts[2]),
+                    sigma=float(parts[3])
+                )
+                
+            elif method_type == "Felzenszwalb":
+                if len(parts) != 4:
+                    raise ValueError(f"Invalid Felzenszwalb format: {method_str}")
+                return FelzenszwalbSuperpixel(
+                    min_size=int(parts[1]),
+                    sigma=float(parts[2]),
+                    scale=float(parts[3])
+                )
+                
+            elif method_type == "Watershed":
+                return WatershedSuperpixel(
+                    threshold=float(parts[1])
+                )
+                
+            else:
+                raise ValueError(f"Unknown method type: {method_type}")
+                
+        except (IndexError, ValueError) as e:
+            raise ValueError(f"Failed to parse method string '{method_str}': {str(e)}")
 
     def add_scribble(self, scribble: Scribble) -> None:
         scribble.id = self.ind_scrible

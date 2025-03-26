@@ -7,6 +7,11 @@ import numpy as np
 from typing import OrderedDict, List
 import copy
 import structs
+from pathlib import Path
+from tkinter import messagebox
+import json
+
+MAX_DOWNSCALE_COEFF = 10
 
 def get_downscaled_image(image: Image, max_size: int):
     """
@@ -18,6 +23,8 @@ def get_downscaled_image(image: Image, max_size: int):
     max_side = max(image.size[0], image.size[1])
     while max_side // down_coeff > max_size:
         down_coeff += 1
+        if down_coeff >= MAX_DOWNSCALE_COEFF:
+            break
     image = image.resize((int(image.size[0] / down_coeff), int(image.size[1] / down_coeff)))
     return image, down_coeff
 
@@ -130,7 +137,7 @@ class ScribbleApp:
         self.added_superpixels_method: List[structs.SuperPixelMethod] = []
 
         # Create a zoom slider
-        self.zoom_slider = tk.Scale(self.control_frame, from_=0.5, to=5, resolution=0.1, 
+        self.zoom_slider = tk.Scale(self.control_frame, from_=0.5, to=15, resolution=0.1, 
                                     orient=tk.HORIZONTAL, label="Zoom")
         self.zoom_slider.bind("<ButtonRelease-1>", self.update_zoom)
         self.zoom_slider.set(1)  # Set initial zoom level
@@ -155,8 +162,8 @@ class ScribbleApp:
 
         # Устанавливаем начальные значения для слайдеров
         self.slider_n_segments.set(500)
-        self.slider_compactness.set(10.0)
-        self.slider_sigma_slic.set(2.0)
+        self.slider_compactness.set(17.0)
+        self.slider_sigma_slic.set(1.0)
         self.slider_scale_felzenszwalb.set(10)
         self.slider_sigma_felzenszwalb.set(1.0)
         self.slider_min_size.set(10)
@@ -189,8 +196,8 @@ class ScribbleApp:
         # Create a canvas
         self.canvas = tk.Canvas(
             self.canvas_frame, 
-            width=min(self.image.width, 1200), 
-            height=min(self.image.height, 800), 
+            width=1200, #min(self.image.width, 1200), 
+            height=800, #min(self.image.height, 800), 
             bg='white'
         )
 
@@ -214,8 +221,12 @@ class ScribbleApp:
     def open_image(self):
         file_path = filedialog.askopenfilename()
         if file_path:
+            if hasattr(self, 'canvas'):
+                self.canvas.destroy()
+                self.h_scrollbar.destroy()
+                self.v_scrollbar.destroy()
             self.original_image = Image.open(file_path)
-            self.image, self.downscale_coeff = get_downscaled_image(self.original_image.copy(), 1500)
+            self.image, self.downscale_coeff = get_downscaled_image(self.original_image.copy(), 15000)
             self.create_canvas()
             self.superpixel_anno_algo = structs.SuperPixelAnnotationAlgo(
                 downscale_coeff=1,
@@ -238,18 +249,45 @@ class ScribbleApp:
 
 
     def save(self):
-        self.superpixel_anno_algo.serialize()
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".json",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+            title="Save Annotation File"
+        )
+        if file_path:  # Проверяем что пользователь не отменил диалог
+            try:
+                # Создаем директорию если необходимо
+                Path(file_path).parent.mkdir(parents=True, exist_ok=True)
+                self.superpixel_anno_algo.serialize(file_path)
+                messagebox.showinfo("Success", f"Annotations saved to:\n{file_path}")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to save file:\n{str(e)}")
 
     def load(self):
-        self.superpixel_anno_algo.deserialize()
-        for i in range(len(self.superpixel_anno_algo.superpixel_methods)):
-            self.added_superpixels_method.append(self.superpixel_anno_algo.superpixel_methods[i])
-            new_method = self.superpixel_anno_algo.superpixel_methods[i].short_string()
+        file_path = filedialog.askopenfilename(
+            defaultextension=".json",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+            title="Open Annotation File"
+        )
+        if file_path:
+            try:
+                self.superpixel_anno_algo.deserialize(file_path)
+                self._update_ui_after_loading()
+                messagebox.showinfo("Success", f"Annotations loaded from:\n{file_path}")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to load file:\n{str(e)}")
+
+    def _update_ui_after_loading(self):
+        """Обновление интерфейса после загрузки данных"""
+        self.added_superpixels_method.clear()
+        for method in self.superpixel_anno_algo.superpixel_methods:
+            self.added_superpixels_method.append(method)
+            new_method = method.short_string()
             current_values = list(self.cur_superpixel_method_combobox['values'])
-            if not (new_method in current_values):
+            if new_method not in current_values:
                 current_values.append(new_method)
                 self.cur_superpixel_method_combobox['values'] = current_values
-        self.update_zoom(0)
+        self.update_zoom(self.zoom_slider.get())
     
     def cancel_action(self):
         self.superpixel_anno_algo.cancel_prev_act()

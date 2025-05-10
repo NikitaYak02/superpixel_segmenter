@@ -244,6 +244,21 @@ def simplify(polygon, tolerance = 1e-10) -> np.ndarray:
     # convert it back to numpy
     return np.array(poly_s.boundary.coords[:], dtype=np.float32)
 
+def check_scribbles_dont_intersect_one_region(
+        scribbles: List[Scribble],
+        regions: List[SuperPixel]
+    ) -> bool:
+    intersected_before: List[bool] = [False for _ in range(len(regions))]
+    for scribble_ind in range(len(scribbles)):
+        for region_ind in range(len(regions)):
+            scribble_line: shapely.LineString = shapely.LineString(scribbles[scribble_ind].points)
+            border: shapely.Polygon = shapely.Polygon(regions[region_ind].border)
+            if border.intersects(scribble_line):
+                if intersected_before[region_ind]:
+                    return False
+                else:
+                   intersected_before[region_ind] = True 
+    return True
 class SuperPixelAnnotationAlgo:
 
     def __init__(
@@ -561,51 +576,70 @@ class SuperPixelAnnotationAlgo:
                             overlay_rgb = overlay.convert("RGB").convert("L")
                             overlay_rgb = np.array(overlay_rgb)
                             print("conv started")
-                            overlay_rgb = convolve2d(overlay_rgb, np.ones((3,3), dtype=np.int32), "same")
+                            # overlay_rgb = convolve2d(overlay_rgb, np.ones((3,3), dtype=np.int32), "same")
                             print("conv finished")
-                            sp_mask = slic(
-                                self.image_lab,
-                                n_segments=10,
-                                compactness=superpixel_method.compactness,
-                                sigma=superpixel_method.sigma,
-                                start_label=1,
-                                mask=overlay_rgb
-                            )
-                            print("sp finished")
-                            segments = np.zeros((sp_mask.shape[0]+2, sp_mask.shape[1]+2), dtype=np.int32)
-                            segments -= 1
-                            segments[1:-1, 1:-1] = sp_mask
-                            unique_segments = np.unique(sp_mask)[1:]
-                            for segment in unique_segments:
-                                print("process segment in supepixel divide", segment)
-                                # Create a mask for the current segment
-                                binary_mask = (sp_mask == segment).astype(np.uint8)
-                                contours = skimage.measure.find_contours(binary_mask)
-                                external_contour = contours[0][:, ::-1]
-                                # Преобразуйте контур в список координат
-                                polygon = external_contour.astype(np.float32)
-                                #image_to_vis = self.image.copy()
-                                #draw = ImageDraw.Draw(image_to_vis)
-                                #draw.polygon(polygon, outline="red")
-                                #draw.polygon(region, outline="yellow")
-                                #image_to_vis.show()
-                                #plt.imshow(image_to_vis)
-                                #plt.show()
-                                polygon[:, 0] /= overlay_rgb.shape[1]
-                                polygon[:, 1] /= overlay_rgb.shape[0]
-                                polygon1 = shapely.Polygon(polygon).intersection(shapely.Polygon(cur_superpixel.border))
-                                if isinstance(polygon1, shapely.GeometryCollection):
-                                    polygon1 = polygon1.geoms[0]
-                                elif isinstance(polygon1, shapely.MultiPolygon):
-                                    polygon1 = polygon1.geoms[0]
-                                polygon = np.array(polygon1.boundary.coords)
-                                
-
+                            is_new_superpixel_correct = False
+                            temp_divided_sp: List[SuperPixel] = []
+                            cur_n_segments = 4
+                            while not is_new_superpixel_correct:
+                                sp_mask = slic(
+                                    self.image_lab,
+                                    n_segments=cur_n_segments,
+                                    compactness=superpixel_method.compactness,
+                                    sigma=superpixel_method.sigma,
+                                    start_label=1,
+                                    mask=overlay_rgb
+                                )
+                                temp_divided_sp.clear()
+                                print("sp finished")
+                                segments = np.zeros((sp_mask.shape[0]+2, sp_mask.shape[1]+2), dtype=np.int32)
+                                segments -= 1
+                                segments[1:-1, 1:-1] = sp_mask
+                                unique_segments = np.unique(sp_mask)[1:]
+                                for segment in unique_segments:
+                                    print("process segment in supepixel divide", segment)
+                                    # Create a mask for the current segment
+                                    binary_mask = (sp_mask == segment).astype(np.uint8)
+                                    contours = skimage.measure.find_contours(binary_mask)
+                                    external_contour = contours[0][:, ::-1]
+                                    # Преобразуйте контур в список координат
+                                    polygon = external_contour.astype(np.float32)
+                                    #image_to_vis = self.image.copy()
+                                    #draw = ImageDraw.Draw(image_to_vis)
+                                    #draw.polygon(polygon, outline="red")
+                                    #draw.polygon(region, outline="yellow")
+                                    #image_to_vis.show()
+                                    #plt.imshow(image_to_vis)
+                                    #plt.show()
+                                    polygon[:, 0] /= overlay_rgb.shape[1]
+                                    polygon[:, 1] /= overlay_rgb.shape[0]
+                                    polygon1 = shapely.Polygon(polygon).intersection(shapely.Polygon(cur_superpixel.border))
+                                    if isinstance(polygon1, shapely.GeometryCollection):
+                                        polygon1 = polygon1.geoms[0]
+                                    elif isinstance(polygon1, shapely.MultiPolygon):
+                                        polygon1 = polygon1.geoms[0]
+                                    polygon = np.array(polygon1.boundary.coords)
+                                    temp_divided_sp.append(
+                                        SuperPixel(
+                                            id=self._superpixel_ind[superpixel_method],
+                                            method=superpixel_method.short_string(), 
+                                            border=np.around(polygon, decimals=7), #len(polygon) // 20 if len(polygon) > 20 else 1
+                                            parents=cur_superpixel.id
+                                        )
+                                    )
+                                is_new_superpixel_correct = check_scribbles_dont_intersect_one_region(
+                                    [anno_created_scribble, last_scribble],
+                                    temp_divided_sp
+                                )
+                                cur_n_segments *= 2
+                                if cur_n_segments > 40:
+                                    break
+                            for sp in temp_divided_sp:
                                 superpixel_to_append.append(
                                     SuperPixel(
                                         id=self._superpixel_ind[superpixel_method],
                                         method=superpixel_method.short_string(), 
-                                        border=np.around(polygon[::], decimals=7), #len(polygon) // 20 if len(polygon) > 20 else 1
+                                        border=sp.border, #len(polygon) // 20 if len(polygon) > 20 else 1
                                         parents=cur_superpixel.id
                                     )
                                 )

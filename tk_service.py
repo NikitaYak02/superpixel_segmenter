@@ -109,6 +109,9 @@ class ScribbleApp:
         # Button to open image
         self.open_button = tk.Button(self.control_frame, text="Load image", command=self.open_image)
         self.open_button.pack(side=tk.TOP)
+
+        self.calncel_button = tk.Button(self.control_frame, text="Cancel prev scribble", command=self.cancel_action)
+        self.calncel_button.pack(side=tk.TOP)
         # Создание кнопок для добавление суперпиксельного алгоритма и для отмены действия
         self.add_superpixel_anno_algo_button = tk.Button(self.control_frame, text="Add new superpixel method", command=self.add_superpixel_anno_method)
         self.add_superpixel_anno_algo_button.pack(side=tk.TOP, pady=30)
@@ -142,6 +145,20 @@ class ScribbleApp:
         self.zoom_slider.bind("<ButtonRelease-1>", self.update_zoom)
         self.zoom_slider.set(1)  # Set initial zoom level
         self.zoom_slider.pack(side=tk.TOP, pady=10)  # Убедитесь, что слайдер добавлен в интерфейс
+
+        self.draw_borders_var = tk.BooleanVar()
+        self.check_button = tk.Checkbutton(
+            master=self.control_frame,
+            text="draw borders",
+            variable=self.draw_borders_var,
+            offvalue=False,
+            onvalue=True,
+            command=self.draw_borders_button_changed,
+        )
+        self.check_button.pack(side=tk.TOP, pady=10)
+
+
+
 
         # Слайдеры для алгоритмов сегментации
         # Слайдеры для SLIC
@@ -192,6 +209,9 @@ class ScribbleApp:
         self.last_x, self.last_y = None, None
         self.scale = 1.0  # Zoom level
 
+    def draw_borders_button_changed(self):
+        self.update_zoom(None)
+
     def create_canvas(self):
         # Create a canvas
         self.canvas = tk.Canvas(
@@ -238,6 +258,7 @@ class ScribbleApp:
             self.prev_line = []
             self.lines_color = []   
             self.display_image()
+
 
     def display_image(self):
         img_resized = self.image.resize((int(self.image.width * self.scale), int(self.image.height * self.scale)))
@@ -291,6 +312,7 @@ class ScribbleApp:
     
     def cancel_action(self):
         self.superpixel_anno_algo.cancel_prev_act()
+        self.update_zoom(None)
 
     def marker_changed(self, event):
         self.curr_marker = event.widget.get()
@@ -382,7 +404,8 @@ class ScribbleApp:
             print(self.cur_superpixel_method_short_string)
             self.overlay = Image.new("RGBA", self.image.size, (255, 255, 255, 0))
         draw = ImageDraw.Draw(self.overlay)
-        if not (self.cur_superpixel_method_short_string in ["default", ""]):
+        if not (self.cur_superpixel_method_short_string in ["default", ""]) and \
+            self.draw_borders_var.get():
             tgt_sh = self.image.size
             for sp_method in self.added_superpixels_method:
                 if sp_method.short_string() == self.cur_superpixel_method_short_string:
@@ -428,7 +451,7 @@ class ScribbleApp:
             for i in range(len(line) - 1):
                 self.canvas.create_line((new_width * line[i][0], new_height * line[i][1],
                                 new_width * line[i+1][0], new_height * line[i+1][1]), fill=color, width=2)
-        #for line, color in zip(self.lines, self.lines_color):
+        # for line, color in zip(self.lines, self.lines_color):
         #    for i in range(len(line) - 1):
         #        self.canvas.create_line((new_width * line[i][0], new_height * line[i][1],
         #                        new_width * line[i+1][0], new_height * line[i+1][1]), fill=color, width=2)

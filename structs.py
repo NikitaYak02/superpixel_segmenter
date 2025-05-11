@@ -43,6 +43,12 @@ class Scribble:
     params: ScribbleParams  # parameters of the scribble
     creation_time: datetime = None
 
+    def __init__(self, id, points, params, creation_time = None):
+        self.id = int(id)
+        self.points = points
+        self.params = params
+        self.creation_time = creation_time
+
     def __len__(self):
         return len(self.points)
 
@@ -68,7 +74,10 @@ class Scribble:
         res["id"] = self.id
         res["points"] = self.points.tolist()
         res["params"] = self.params.dict_to_save()
-        res["creation_time"] = self.creation_time.isoformat()
+        if self.creation_time is not None:
+            res["creation_time"] = self.creation_time.isoformat()
+        else:
+            res["creation_time"] = datetime.datetime().isoformat()
         return res
     
     def set_from_dict(self, loaded_dict):
@@ -136,6 +145,7 @@ class AnnotationInstance:
         res["code"] = int(self.code)
         res["border"] = [[round(float(y), 7) for y in x] for x in self.border]
         res["parent_superpixel"] = int(self.parent_superpixel)
+        res["parent_scribble"] = self.parent_scribble
         return res
     
     def set_from_dict(self, loaded_dict):
@@ -293,6 +303,10 @@ class SuperPixelAnnotationAlgo:
 
         self._scribbles: List[Scribble] = []
 
+        # нужны для отмены действий сложных случаев в духе
+        # [0, 1, 2] -> [0, 1] -> [0, 1, 3] -> [0] -> [0, 4]
+        self.scribbles_id_sequence: List[int] = []
+
     def _preprocess_image(self, downscale_coeff: float) -> None:
         sh = self.image.size
         self.image.thumbnail((int(sh[0] * downscale_coeff), int(sh[1] * downscale_coeff)), Image.Resampling.BILINEAR)
@@ -310,7 +324,6 @@ class SuperPixelAnnotationAlgo:
         print("len of annos after added:", len(self._annotations))
         print(len(self.superpixels[superpixel_method]))
         print(len(self.superpixels))
-
 
     def _create_superpixel(self, superpixel_method: SuperPixelMethod) -> None:
         self._superpixel_ind[superpixel_method] = 0
@@ -373,11 +386,21 @@ class SuperPixelAnnotationAlgo:
             self._annotations[superpixel_method] = ImageAnnotation(annotations=[])
 
     def cancel_prev_act(self):
-        print("Cancelled:")
-        for superpixel_method in self.superpixel_methods:
-            print(len(self._annotations[superpixel_method]))
-            self._annotations[superpixel_method] = set(i for i in self._annotations[superpixel_method] if i.id < self.prev_ind_scrible)
-            print(len(self._annotations[superpixel_method]))
+        scribble_to_del = self.scribbles_id_sequence.pop()
+        for anno_key in list(self._annotations.keys()):
+            print("self._annotations[anno_key].annotations")
+            print(len(self._annotations[anno_key].annotations))
+            anno_to_del = []
+            for anno_ind in range(len(self._annotations[anno_key].annotations)):
+                if scribble_to_del in self._annotations[anno_key].annotations[anno_ind].parent_scribble:
+                    anno_to_del.append(anno_ind)
+            print(len(anno_to_del))
+            for j in anno_to_del[::-1]:
+                self._annotations[anno_key].annotations.pop(j)
+            self._scribbles.pop()
+            print(len(self._annotations[anno_key].annotations))
+
+        
     
     def serialize(self, path: str) -> None:
         """Сериализация данных с автоматическим созданием файла"""
@@ -447,7 +470,6 @@ class SuperPixelAnnotationAlgo:
         """Загрузка данных о суперпикселях"""
         for method_str, sp_list in data["superpixels"].items():
             method = self._parse_method_from_string(method_str)
-            self.superpixel_methods.append(method)
             self.superpixels[method] = [
                 SuperPixel(
                     id=sp["id"],
@@ -456,6 +478,11 @@ class SuperPixelAnnotationAlgo:
                     parents=sp["parents"]
                 ) for sp in sp_list
             ]
+            self.superpixel_methods.append(method)
+            self._annotation_ind[method] = 0
+            self._superpixel_ind[method] = 0
+            for sp in sp_list:
+                self._superpixel_ind[method] = max(self._superpixel_ind[method], sp["id"]+1)
 
     def _load_annotations(self, data: dict):
         """Загрузка аннотаций"""
@@ -464,13 +491,17 @@ class SuperPixelAnnotationAlgo:
             self._annotations[method] = ImageAnnotation(
                 annotations=[
                     AnnotationInstance(
-                        id=anno["id"],
+                        id=int(anno["id"]),
                         code=anno["code"],
                         border=np.array(anno["border"], dtype=np.float32),
-                        parent_superpixel=anno["parent_superpixel"]
+                        parent_superpixel=anno["parent_superpixel"],
+                        parent_scribble=[int(i) for i in anno["parent_scribble"]]
                     ) for anno in anno_list
                 ]
             )
+            self._annotation_ind[method] = -1
+            for anno in anno_list:
+                self._annotation_ind[method] = max(self._annotation_ind[method], int(anno["id"]) + 1)
 
     def _load_scribbles(self, data: dict):
         """Загрузка скрайблов"""
@@ -484,6 +515,7 @@ class SuperPixelAnnotationAlgo:
                 )
             ) for scribble in data["scribbles"]
         ]
+        self.scribbles_id_sequence = [int(scribble["id"]) for scribble in data["scribbles"]]
     
     @staticmethod
     def _parse_method_from_string(method_str: str) -> SuperPixelMethod:
@@ -524,6 +556,7 @@ class SuperPixelAnnotationAlgo:
 
     def add_scribble(self, scribble: Scribble) -> None:
         scribble.id = self.ind_scrible
+        self.scribbles_id_sequence.append(scribble.id)
         self.ind_scrible += 1
         print("Adding scribble")
         print(f"Current number of scribbles: {len(self._scribbles)}")
@@ -657,7 +690,7 @@ class SuperPixelAnnotationAlgo:
                         code=last_scribble.params.code,
                         border=cur_superpixel.border.astype(np.float32),
                         parent_superpixel=cur_superpixel.id,
-                        parent_scribble=[last_scribble.id]
+                        parent_scribble=[int(last_scribble.id)]
                     )
                 )
                 self._annotation_ind[superpixel_method] += 1

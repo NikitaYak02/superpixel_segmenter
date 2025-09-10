@@ -10,6 +10,7 @@ import structs
 from pathlib import Path
 from tkinter import messagebox
 import json
+from shapely import LineString
 
 MAX_DOWNSCALE_COEFF = 10
 
@@ -40,6 +41,20 @@ def get_key_by_value_markers(ordered_dict, value):
         if val[0] == value:
             return key
     return None  # Если значение не найдено
+
+def is_new_line_valid(new_line: LineString, color: str, 
+                      existing_lines: list[LineString], existing_lines_colors: list[str]) -> bool:
+    """
+    Проверяет, пересекается ли новый LineString с любым из существующих.
+
+    :param new_line: Новый LineString для проверки
+    :param existing_lines: Список существующих LineString
+    :return: True, если пересечений нет, иначе False
+    """
+    for existing_color, existing in zip(existing_lines_colors, existing_lines):
+        if new_line.intersects(existing) and color != existing_color:
+            return False
+    return True
 
 class ScribbleApp:
     def __init__(self, master):
@@ -111,21 +126,22 @@ class ScribbleApp:
         self.open_button.pack(side=tk.TOP)
 
         self.calncel_button = tk.Button(self.control_frame, text="Cancel prev scribble", command=self.cancel_action)
-        self.calncel_button.pack(side=tk.TOP)
+        self.calncel_button.pack(side=tk.TOP, pady=15)
         # Создание кнопок для добавление суперпиксельного алгоритма и для отмены действия
         self.add_superpixel_anno_algo_button = tk.Button(self.control_frame, text="Add new superpixel method", command=self.add_superpixel_anno_method)
-        self.add_superpixel_anno_algo_button.pack(side=tk.TOP, pady=30)
+        self.add_superpixel_anno_algo_button.pack(side=tk.TOP, pady=15)
         
         self.cancel_action_button = tk.Button(self.control_frame, text="Save", command=self.save)
-        self.cancel_action_button.pack(side=tk.TOP, pady=30)
+        self.cancel_action_button.pack(side=tk.TOP, pady=15)
 
         self.cancel_action_button = tk.Button(self.control_frame, text="Load", command=self.load)
-        self.cancel_action_button.pack(side=tk.TOP, pady=30)
+        self.cancel_action_button.pack(side=tk.TOP, pady=15)
 
         # Алгоритмы сегментации
         self.segmentation_algorithms = OrderedDict({
             "SLIC": "slic",
             "Felzenszwalb": "fwb",
+            "Watershed": "watershed"
         })
 
         # ComboBox для выбора цвета маркера
@@ -144,7 +160,19 @@ class ScribbleApp:
                                     orient=tk.HORIZONTAL, label="Zoom")
         self.zoom_slider.bind("<ButtonRelease-1>", self.update_zoom)
         self.zoom_slider.set(1)  # Set initial zoom level
-        self.zoom_slider.pack(side=tk.TOP, pady=10)  # Убедитесь, что слайдер добавлен в интерфейс
+        self.zoom_slider.pack(side=tk.TOP, pady=10)
+
+        self.sens_dist_slider = tk.Scale(self.control_frame, from_=0, to=500, resolution=1, 
+                                    orient=tk.HORIZONTAL, label="Superpixels dists'")
+        self.sens_dist_slider.bind("<ButtonRelease-1>", self.update_sens_dist)
+        self.sens_dist_slider.set(1)  # Set initial zoom level
+        self.sens_dist_slider.pack(side=tk.TOP, pady=10)
+
+        self.sens_prop_slider = tk.Scale(self.control_frame, from_=0, to=50, resolution=1, 
+                                    orient=tk.HORIZONTAL, label="Superpixels props' dist")
+        self.sens_prop_slider.bind("<ButtonRelease-1>", self.update_sens_prop)
+        self.sens_prop_slider.set(1)  # Set initial zoom level
+        self.sens_prop_slider.pack(side=tk.TOP, pady=10)
 
         self.draw_borders_var = tk.BooleanVar()
         self.check_button = tk.Checkbutton(
@@ -157,7 +185,27 @@ class ScribbleApp:
         )
         self.check_button.pack(side=tk.TOP, pady=10)
 
+        self.draw_annos_var = tk.BooleanVar()
+        self.annos_button = tk.Checkbutton(
+            master=self.control_frame,
+            text="draw anno",
+            variable=self.draw_annos_var,
+            offvalue=False,
+            onvalue=True,
+            command=self.draw_annos_button_changed,
+        )
+        self.annos_button.pack(side=tk.TOP, pady=10)
 
+        self.draw_scrib_var = tk.BooleanVar()
+        self.scrib_button = tk.Checkbutton(
+            master=self.control_frame,
+            text="draw anno",
+            variable=self.draw_scrib_var,
+            offvalue=False,
+            onvalue=True,
+            command=self.draw_scrib_button_changed,
+        )
+        self.scrib_button.pack(side=tk.TOP, pady=10)
 
 
         # Слайдеры для алгоритмов сегментации
@@ -170,12 +218,17 @@ class ScribbleApp:
                                         orient=tk.HORIZONTAL, label="sigma (SLIC)")
 
         # Слайдеры для felzenszwalb
-        self.slider_scale_felzenszwalb = tk.Scale(self.control_frame, from_=50, to=500, resolution=1, 
+        self.slider_scale_felzenszwalb = tk.Scale(self.control_frame, from_=1000, to=10000, resolution=1, 
                                     orient=tk.HORIZONTAL, label="scale (Felzenszwalb)")
         self.slider_sigma_felzenszwalb = tk.Scale(self.control_frame, from_=1, to=20, resolution=0.1, 
                                                 orient=tk.HORIZONTAL, label="sigma (Felzenszwalb)")
         self.slider_min_size = tk.Scale(self.control_frame, from_=30, to=500, resolution=1, 
                                         orient=tk.HORIZONTAL, label="min_size (Felzenszwalb)")
+        
+        self.slider_n_segm_watershed = tk.Scale(self.control_frame, from_=10, to=1000, resolution=1, 
+                                    orient=tk.HORIZONTAL, label="n_segm (watershed)")
+        self.slider_comp_watershed = tk.Scale(self.control_frame, from_=1e-5, to=20, resolution=1e-5, 
+                                                orient=tk.HORIZONTAL, label="comp (watershed)")
 
         # Устанавливаем начальные значения для слайдеров
         self.slider_n_segments.set(500)
@@ -184,6 +237,8 @@ class ScribbleApp:
         self.slider_scale_felzenszwalb.set(10)
         self.slider_sigma_felzenszwalb.set(1.0)
         self.slider_min_size.set(10)
+        self.slider_n_segm_watershed.set(500)
+        self.slider_comp_watershed.set(1e-4)
 
         # Добавляем слайдеры в интерфейс
         self.slider_n_segments.pack(side=tk.TOP, pady=10)
@@ -193,6 +248,9 @@ class ScribbleApp:
         self.slider_scale_felzenszwalb.pack(side=tk.TOP, pady=10)
         self.slider_sigma_felzenszwalb.pack(side=tk.TOP, pady=10)
         self.slider_min_size.pack(side=tk.TOP, pady=10)
+        
+        self.slider_n_segm_watershed.pack(side=tk.TOP, pady=10)
+        self.slider_comp_watershed.pack(side=tk.TOP, pady=10)
 
         # Скрываем слайдеры по умолчанию
         self.hide_all_sliders()
@@ -210,6 +268,12 @@ class ScribbleApp:
         self.scale = 1.0  # Zoom level
 
     def draw_borders_button_changed(self):
+        self.update_zoom(None)
+
+    def draw_annos_button_changed(self):
+        self.update_zoom(None)
+
+    def draw_scrib_button_changed(self):
         self.update_zoom(None)
 
     def create_canvas(self):
@@ -312,6 +376,8 @@ class ScribbleApp:
     
     def cancel_action(self):
         self.superpixel_anno_algo.cancel_prev_act()
+        self.lines.pop()
+        self.lines_color.pop()
         self.update_zoom(None)
 
     def marker_changed(self, event):
@@ -335,7 +401,7 @@ class ScribbleApp:
         if self.last_x is not None and self.last_y is not None:
             # Draw line on canvas
             self.canvas.create_line((self.last_x, self.last_y,
-                                     x , y), fill=self._color, width=2)
+                                     x , y), fill=self._color, width=6)
         self.prev_line.append((
             x / self.image.width,
             y / self.image.height
@@ -345,12 +411,47 @@ class ScribbleApp:
     def reset(self, event):
         self.last_x, self.last_y = None, None
         scribble = np.array(self.prev_line, dtype=np.float32)
-        if len(scribble) < 2:
+        prev_lines = [LineString(scrib) for scrib in self.lines]
+        if not is_new_line_valid(LineString(scribble), self._color, prev_lines, self.lines_color) or len(scribble) < 2:
+            self.prev_line = []
+            self.update_zoom(self.zoom_slider.get())
             return
+
         self.lines.append(scribble)
         self.lines_color.append(self._color)
         print("scribble sum:", scribble.sum())
         key = get_key_by_value(self.markers, self._color)
+        sp_method = None
+        if self.selected_algorithm == "SLIC":
+            sp_method = structs.SLICSuperpixel(
+                n_clusters=self.slider_n_segments.get(),
+                compactness=self.slider_compactness.get(),
+                sigma=self.slider_sigma_slic.get()
+            )
+        elif self.selected_algorithm == "Watershed":
+            sp_method = structs.WatershedSuperpixel(
+                compactness = self.slider_comp_watershed.get(),
+                n_components = self.slider_n_segm_watershed.get()
+            )
+        elif self.selected_algorithm == "Felzenszwalb":
+            sp_method = structs.FelzenszwalbSuperpixel(
+                min_size = self.slider_min_size.get(),
+                sigma = self.slider_sigma_felzenszwalb.get(),
+                scale = self.slider_scale_felzenszwalb.get()
+            )
+        self.scrible_counter += 1
+        self.prev_line = []
+        self.superpixel_anno_algo._create_superpixel_for_scribble(
+            structs.Scribble(
+                id=self.scrible_counter,
+                points=scribble,
+                params=structs.ScribbleParams(
+                    radius=1,
+                    code=self.markers[key][0]
+                )
+            ),
+            sp_method
+        )
         self.superpixel_anno_algo.add_scribble(
             structs.Scribble(
                 id=self.scrible_counter,
@@ -361,8 +462,6 @@ class ScribbleApp:
                 )
             )
         )
-        self.scrible_counter += 1
-        self.prev_line = []
         self.update_zoom(self.zoom_slider.get())
 
     def hide_all_sliders(self):
@@ -373,6 +472,8 @@ class ScribbleApp:
         self.slider_scale_felzenszwalb.pack_forget()
         self.slider_sigma_felzenszwalb.pack_forget()
         self.slider_min_size.pack_forget()
+        self.slider_n_segm_watershed.pack_forget()
+        self.slider_comp_watershed.pack_forget()
 
     def algorithm_changed(self, event):
         self.selected_algorithm = self.algorithm_combobox.get()
@@ -389,10 +490,23 @@ class ScribbleApp:
             self.slider_scale_felzenszwalb.pack(side=tk.TOP, pady=20)
             self.slider_sigma_felzenszwalb.pack(side=tk.TOP, pady=20)
             self.slider_min_size.pack(side=tk.TOP, pady=20)
+        elif self.selected_algorithm == "Watershed":
+            self.slider_n_segm_watershed.pack(side=tk.TOP, pady=10)
+            self.slider_comp_watershed.pack(side=tk.TOP, pady=10)
 
 
+    def update_sens_prop(self, _):
+        if hasattr(self, "superpixel_anno_algo"):
+            self.superpixel_anno_algo._property_dist = float(self.sens_prop_slider.get())
+
+    def update_sens_dist(self, _):
+        if hasattr(self, "superpixel_anno_algo"):
+            self.superpixel_anno_algo._superpixel_radius = float(self.sens_dist_slider.get())
+            self.superpixel_anno_algo._superpixel_radius /= self.superpixel_anno_algo.image_lab.shape[0]
 
     def update_zoom(self, value, signal_from_paint=False):
+        if not hasattr(self, "superpixel_anno_algo"):
+            return
         if not signal_from_paint:
             self.canvas.delete("all")
             self.scale = float(self.zoom_slider.get())
@@ -404,26 +518,26 @@ class ScribbleApp:
             print(self.cur_superpixel_method_short_string)
             self.overlay = Image.new("RGBA", self.image.size, (255, 255, 255, 0))
         draw = ImageDraw.Draw(self.overlay)
-        if not (self.cur_superpixel_method_short_string in ["default", ""]) and \
-            self.draw_borders_var.get():
+        if not (self.cur_superpixel_method_short_string in ["default", ""]):
             tgt_sh = self.image.size
             for sp_method in self.added_superpixels_method:
                 if sp_method.short_string() == self.cur_superpixel_method_short_string:
                     break
             #print(self.superpixel_anno_algo._annotations)
-            annos = self.superpixel_anno_algo._annotations[sp_method]
-            for superpixel in annos.annotations:
-                proc_borders = copy.deepcopy(superpixel.border)
-                proc_borders[:, 0] *= tgt_sh[0]
-                proc_borders[:, 1] *= tgt_sh[1]
-                polygon = [(x[0], x[1]) for x in proc_borders]
-                marker_name = get_key_by_value_markers(self.markers, superpixel.code)
-                color = str(self.markers[marker_name][1])
-                color = (int(color[1:3], base=16), int(color[3:5], base=16), int(color[5:7], base=16), 125)
-                draw.polygon(polygon, fill=color, outline="yellow")
+            if self.draw_annos_var.get():
+                annos = self.superpixel_anno_algo._annotations[sp_method]
+                for superpixel in annos.annotations:
+                    proc_borders = copy.deepcopy(superpixel.border)
+                    proc_borders[:, 0] *= tgt_sh[0]
+                    proc_borders[:, 1] *= tgt_sh[1]
+                    polygon = [(x[0], x[1]) for x in proc_borders]
+                    marker_name = get_key_by_value_markers(self.markers, superpixel.code)
+                    color = str(self.markers[marker_name][1])
+                    color = (int(color[1:3], base=16), int(color[3:5], base=16), int(color[5:7], base=16), 125)
+                    draw.polygon(polygon, fill=color)
                 #self.canvas.create_polygon(*(proc_borders.reshape(-1)), fill="#00FF00", alpha=0.5, outline="red", width=2)
             #print(self.superpixel_anno_algo.superpixels)
-            if not signal_from_paint:
+            if not signal_from_paint and self.draw_borders_var.get():
                 superpixels = self.superpixel_anno_algo.superpixels[sp_method]
                 for superpixel in superpixels:
                     proc_borders = copy.deepcopy(superpixel.border)
@@ -441,16 +555,17 @@ class ScribbleApp:
         self.canvas.config(scrollregion=self.canvas.bbox(tk.ALL))
 
         # Redraw all lines on the resized image
-        for scribble in self.superpixel_anno_algo._scribbles:
-            line = scribble.points
-            color = None
-            for (idx, color_in_markers) in self.markers.values():
-                if scribble.params.code == idx:
-                    color = color_in_markers
-                    break
-            for i in range(len(line) - 1):
-                self.canvas.create_line((new_width * line[i][0], new_height * line[i][1],
-                                new_width * line[i+1][0], new_height * line[i+1][1]), fill=color, width=2)
+        if self.draw_scrib_var.get():
+            for scribble in self.superpixel_anno_algo._scribbles:
+                line = scribble.points
+                color = None
+                for (idx, color_in_markers) in self.markers.values():
+                    if scribble.params.code == idx:
+                        color = color_in_markers
+                        break
+                for i in range(len(line) - 1):
+                    self.canvas.create_line((new_width * line[i][0], new_height * line[i][1],
+                                    new_width * line[i+1][0], new_height * line[i+1][1]), fill=color, width=6)
         # for line, color in zip(self.lines, self.lines_color):
         #    for i in range(len(line) - 1):
         #        self.canvas.create_line((new_width * line[i][0], new_height * line[i][1],
@@ -473,8 +588,12 @@ class ScribbleApp:
                 )
             )
         elif self.selected_algorithm == "Watershed":
-            # Здесь можно добавить параметры для Watershed, если они нужны
-            pass
+            self.superpixel_anno_algo.add_superpixel_method(
+                structs.WatershedSuperpixel(
+                    compactness = self.slider_comp_watershed.get(),
+                    n_components = self.slider_n_segm_watershed.get()
+                )
+            )
         elif self.selected_algorithm == "Felzenszwalb":
             self.superpixel_anno_algo.add_superpixel_method(
                 structs.FelzenszwalbSuperpixel(

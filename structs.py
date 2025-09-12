@@ -374,7 +374,21 @@ def split_recursive(mask: np.ndarray) -> List[np.ndarray]:
     points = np.column_stack((x, y))
     centroid = np.mean(points, axis=0)
     
-    perp_angle = np.pi/2
+    # Calculate principal axis of the hole using PCA.
+    # The previous implementation used a constant angle which
+    # failed to split masks in many orientations.  Here we
+    # compute the orientation of the largest hole and build a
+    # splitting line perpendicular to it.
+    centered = points - centroid
+    if len(centered) >= 2:
+        # PCA via singular value decomposition
+        _, _, vh = np.linalg.svd(centered, full_matrices=False)
+        principal_axis = vh[0]
+    else:
+        # Degenerate case – fall back to horizontal split
+        principal_axis = np.array([1.0, 0.0])
+    perp_vector = np.array([-principal_axis[1], principal_axis[0]])
+    perp_angle = np.arctan2(perp_vector[1], perp_vector[0])
     
     # Создаем линию разреза
     yy, xx = np.indices(mask.shape)
@@ -541,8 +555,10 @@ class SuperPixelAnnotationAlgo:
             binary_mask = (segments == segment).astype(np.uint8)
             # pixels = image_roi[binary_mask[1:-1, 1:-1]]
             contours = skimage.measure.find_contours(binary_mask)
-
-            external_contour = contours[0][:, ::-1]
+            if not contours:
+                continue
+            # Use the longest contour which corresponds to the outer border
+            external_contour = max(contours, key=len)[:, ::-1]
             # Преобразуйте контур в список координат
             polygon = (external_contour - 1).astype(np.float32)
             polygon[:, 0] /= sp_mask.shape[1]
@@ -695,8 +711,9 @@ class SuperPixelAnnotationAlgo:
             # pixels = image_roi[binary_mask[1:-1, 1:-1]]
             for binary_mask in split_mask(binary_masks.astype(np.bool_)):
                 contours = skimage.measure.find_contours(binary_mask.astype(np.uint8))
-
-                external_contour = contours[0][:, ::-1]
+                if not contours:
+                    continue
+                external_contour = max(contours, key=len)[:, ::-1]
                 # Преобразуйте контур в список координат
                 polygon = (external_contour - 1).astype(np.float32)
                 polygon[:, 0] /= sp_mask.shape[1]
@@ -761,8 +778,9 @@ class SuperPixelAnnotationAlgo:
             # Create a mask for the current segment
             binary_mask = (segments == segment).astype(np.uint8)
             contours = skimage.measure.find_contours(binary_mask)
-
-            external_contour = contours[0][:, ::-1]
+            if not contours:
+                continue
+            external_contour = max(contours, key=len)[:, ::-1]
             # Преобразуйте контур в список координат
             polygon = (external_contour - 1).astype(np.float32)
             polygon[:, 0] /= sp_mask.shape[1]
@@ -1126,9 +1144,11 @@ class SuperPixelAnnotationAlgo:
                                     # print("process segment in supepixel divide", segment)
                                     # Create a mask for the current segment
                                     binary_mask = (sp_mask == segment).astype(np.uint8)
-                                    
+
                                     contours = skimage.measure.find_contours(binary_mask)
-                                    external_contour = contours[0][:, ::-1]
+                                    if not contours:
+                                        continue
+                                    external_contour = max(contours, key=len)[:, ::-1]
                                     # Преобразуйте контур в список координат
                                     polygon = external_contour.astype(np.float32)
                                     #image_to_vis = self.image.copy()
